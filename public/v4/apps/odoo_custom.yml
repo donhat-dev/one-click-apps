@@ -28,10 +28,32 @@ services:
         environment:
             POSTGRES_PASSWORD: $$cap_postgres_password
             HOST: srv-captain--$$cap_appname-db
+            REPO: $$cap_repo
+            GITHUB_ACCOUNT: $$cap_github_account
+            GITHUB_TOKEN: $$cap_github_token
         caproverExtra:
             containerHttpPort: '8069'
+        command: >
+            bash -c "
+            # Kiểm tra và clone các repository chứa addon
+            IFS=',' read -ra REPOS <<< \"$$REPO\"
+            for REPO_URL in \"${REPOS[@]}\"; do
+            REPO_NAME=$(basename $$REPO_URL .git)
+            if [ ! -d \"/mnt/extra-addons/$$REPO_NAME\" ]; then
+                git clone $$REPO_URL /mnt/extra-addons/$$REPO_NAME
+            else
+                cd /mnt/extra-addons/$$REPO_NAME && git pull
+            fi
+            done
+            # Cập nhật cấu hình addons_path trong tệp odoo.conf
+            ADDONS_PATHS=$(find /mnt/extra-addons -maxdepth 1 -type d ! -path /mnt/extra-addons)
+            ADDONS_PATHS=$(printf \",%s\" \"${ADDONS_PATHS[@]}")
+            sed -i \"s|^addons_path =.*|addons_path = /mnt/extra-addons${ADDONS_PATHS}|\" /etc/odoo/odoo.conf
+            # Khởi động Odoo
+            exec /entrypoint.sh
+            "
 caproverOneClickApp:
-    displayName: 'Odoo'
+    displayName: 'Odoo (Custom Repo)'
     variables:
         - id: $$cap_postgres_version
           label: Postgres Version
@@ -47,6 +69,20 @@ caproverOneClickApp:
           defaultValue: '13.0'
           description: Check out their docker page for the valid tags https://hub.docker.com/_/odoo?tab=tags
           validRegex: /^([^\s^\/])+$/
+        - id: $$cap_repo
+          label: Github Repo
+          defaultValue: 'https://github.com/user_name/repo_name.git'
+          description: 'Danh sách các repository chứa addon, cách nhau bởi dấu phẩy.'
+          validRegex: /^([^\s^\/])+$/
+        - id: $$cap_github_account
+          label: Github Account
+          description: 'Tên tài khoản Github của bạn.'
+          validRegex: /^([^\s^\/])+$/
+        - id: $$cap_github_token
+          label: Github Token
+          description: 'Personal Access Token của Github để truy cập các repository riêng tư.'
+          validRegex: /^([^\s^\/])+$/
+
     instructions:
         start: Odoo is an open source product CRM
         end: Odoo is deployed and the dashboard is available from http://$$cap_appname.$$cap_root_domain.
